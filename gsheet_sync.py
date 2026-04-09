@@ -1,0 +1,229 @@
+"""
+운영 체크리스트 — 구글 스프레드시트 동기화 모듈
+로컬(tkinter)과 웹앱(Streamlit) 모두에서 사용
+"""
+
+import os
+
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+    HAS_GSPREAD = True
+except ImportError:
+    HAS_GSPREAD = False
+
+
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
+# 구글 시트 구조 (4개 시트)
+# - "체크리스트항목": 단계 | 코드 | 항목명
+# - "회차정보":       회차 | 공연일 | 출연단체 | 장르 | 공연시간 | 날씨 | 담당자
+# - "회차별체크":     회차 | 코드 | 상태 | 완료시간 | 담당 | 메모
+# - "운영총평":       회차 | 예상관객수 | 공연평가 | 총평 | 개선사항
+
+
+class GoogleSheetSync:
+    """구글 스프레드시트 읽기/쓰기"""
+
+    def __init__(self, credentials_path=None, credentials_dict=None,
+                 spreadsheet_id=None):
+        if not HAS_GSPREAD:
+            raise ImportError("gspread 패키지가 필요합니다. pip install gspread")
+
+        self.spreadsheet_id = spreadsheet_id
+
+        if credentials_dict:
+            creds = Credentials.from_service_account_info(
+                credentials_dict, scopes=SCOPES)
+        elif credentials_path and os.path.exists(credentials_path):
+            creds = Credentials.from_service_account_file(
+                credentials_path, scopes=SCOPES)
+        else:
+            raise FileNotFoundError("구글 서비스 계정 인증 정보가 없습니다.")
+
+        self.gc = gspread.authorize(creds)
+        self.spreadsheet = self.gc.open_by_key(spreadsheet_id)
+
+    # ═══════════════════════════════════════════
+    #  시트 헬퍼
+    # ═══════════════════════════════════════════
+
+    def _get_or_create_sheet(self, title, rows=200, cols=10):
+        try:
+            return self.spreadsheet.worksheet(title)
+        except gspread.exceptions.WorksheetNotFound:
+            return self.spreadsheet.add_worksheet(
+                title=title, rows=rows, cols=cols)
+
+    def _clear_and_write(self, ws, data):
+        ws.clear()
+        if data:
+            ws.update(data, value_input_option="RAW")
+
+    # ═══════════════════════════════════════════
+    #  업로드 (ChecklistManager → 구글 시트)
+    # ═══════════════════════════════════════════
+
+    def upload_checklist(self, mgr):
+        """ChecklistManager의 전체 데이터를 구글 시트에 업로드"""
+
+        # 1) 체크리스트항목
+        ws_items = self._get_or_create_sheet("체크리스트항목")
+        items_data = [["단계", "코드", "항목명"]]
+        for stage, code, name in mgr.items:
+            items_data.append([stage, code, name])
+        self._clear_and_write(ws_items, items_data)
+
+        # 2) 회차정보
+        ws_info = self._get_or_create_sheet("회차정보")
+        info_data = [["회차", "공연일", "출연단체", "장르", "공연시간", "날씨", "담당자"]]
+        for rnd in sorted(mgr.round_info.keys()):
+            info = mgr.round_info[rnd]
+            info_data.append([
+                rnd,
+                info.get("공연일", ""),
+                info.get("출연단체", ""),
+                info.get("장르", ""),
+                info.get("공연시간", ""),
+                info.get("날씨", ""),
+                info.get("담당자", ""),
+            ])
+        self._clear_and_write(ws_info, info_data)
+
+        # 3) 회차별체크
+        ws_checks = self._get_or_create_sheet("회차별체크")
+        checks_data = [["회차", "코드", "상태", "완료시간", "담당", "메모"]]
+        for rnd in sorted(mgr.checks.keys()):
+            for code, cd in mgr.checks[rnd].items():
+                checks_data.append([
+                    rnd, code,
+                    cd.get("상태", "미완료"),
+                    cd.get("완료시간", ""),
+                    cd.get("담당", ""),
+                    cd.get("메모", ""),
+                ])
+        self._clear_and_write(ws_checks, checks_data)
+
+        # 4) 운영총평
+        ws_reviews = self._get_or_create_sheet("운영총평")
+        reviews_data = [["회차", "예상관객수", "공연평가", "총평", "개선사항"]]
+        for rnd in sorted(mgr.reviews.keys()):
+            rv = mgr.reviews[rnd]
+            reviews_data.append([
+                rnd,
+                rv.get("예상관객수", ""),
+                rv.get("공연평가", ""),
+                rv.get("총평", ""),
+                rv.get("개선사항", ""),
+            ])
+        self._clear_and_write(ws_reviews, reviews_data)
+
+        # 기본 Sheet1 정리
+        self._cleanup_default_sheets()
+
+    # ═══════════════════════════════════════════
+    #  다운로드 (구글 시트 → ChecklistManager)
+    # ═══════════════════════════════════════════
+
+    def download_checklist(self, mgr):
+        """구글 시트에서 전체 데이터를 ChecklistManager로 로드"""
+
+        # 1) 체크리스트항목
+        try:
+            ws = self.spreadsheet.worksheet("체크리스트항목")
+            rows = ws.get_all_values()
+            if len(rows) > 1:
+                mgr.items = []
+                for row in rows[1:]:
+                    if len(row) >= 3 and row[0].strip():
+                        mgr.items.append((
+                            row[0].strip(),
+                            row[1].strip(),
+                            row[2].strip(),
+                        ))
+        except gspread.exceptions.WorksheetNotFound:
+            pass
+
+        # 2) 회차정보
+        try:
+            ws = self.spreadsheet.worksheet("회차정보")
+            rows = ws.get_all_values()
+            mgr.round_info = {}
+            for row in rows[1:]:
+                if not row or not row[0].strip():
+                    continue
+                try:
+                    rnd = int(row[0])
+                except ValueError:
+                    continue
+                mgr.round_info[rnd] = {
+                    "공연일":   row[1].strip() if len(row) > 1 else "",
+                    "출연단체": row[2].strip() if len(row) > 2 else "",
+                    "장르":     row[3].strip() if len(row) > 3 else "",
+                    "공연시간": row[4].strip() if len(row) > 4 else "",
+                    "날씨":     row[5].strip() if len(row) > 5 else "",
+                    "담당자":   row[6].strip() if len(row) > 6 else "",
+                }
+        except gspread.exceptions.WorksheetNotFound:
+            pass
+
+        # 3) 회차별체크
+        try:
+            ws = self.spreadsheet.worksheet("회차별체크")
+            rows = ws.get_all_values()
+            mgr.checks = {}
+            for row in rows[1:]:
+                if not row or not row[0].strip():
+                    continue
+                try:
+                    rnd = int(row[0])
+                except ValueError:
+                    continue
+                code = row[1].strip() if len(row) > 1 else ""
+                if not code:
+                    continue
+                if rnd not in mgr.checks:
+                    mgr.checks[rnd] = {}
+                mgr.checks[rnd][code] = {
+                    "상태":     row[2].strip() if len(row) > 2 else "미완료",
+                    "완료시간": row[3].strip() if len(row) > 3 else "",
+                    "담당":     row[4].strip() if len(row) > 4 else "",
+                    "메모":     row[5].strip() if len(row) > 5 else "",
+                }
+        except gspread.exceptions.WorksheetNotFound:
+            pass
+
+        # 4) 운영총평
+        try:
+            ws = self.spreadsheet.worksheet("운영총평")
+            rows = ws.get_all_values()
+            mgr.reviews = {}
+            for row in rows[1:]:
+                if not row or not row[0].strip():
+                    continue
+                try:
+                    rnd = int(row[0])
+                except ValueError:
+                    continue
+                mgr.reviews[rnd] = {
+                    "예상관객수": row[1].strip() if len(row) > 1 else "",
+                    "공연평가":   row[2].strip() if len(row) > 2 else "",
+                    "총평":       row[3].strip() if len(row) > 3 else "",
+                    "개선사항":   row[4].strip() if len(row) > 4 else "",
+                }
+        except gspread.exceptions.WorksheetNotFound:
+            pass
+
+    def _cleanup_default_sheets(self):
+        try:
+            sheets = self.spreadsheet.worksheets()
+            if len(sheets) > 1:
+                for s in sheets:
+                    if s.title in ("Sheet1", "시트1"):
+                        self.spreadsheet.del_worksheet(s)
+                        break
+        except Exception:
+            pass
