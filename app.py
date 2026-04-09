@@ -145,18 +145,25 @@ def render_tab_check():
     rate = mgr.get_round_rate(cur_rnd)
     status = mgr.get_round_status(cur_rnd)
 
-    # 공연 정보 헤더
-    c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
-    with c1:
+    # 공연 정보 헤더 — 1행: 회차 + 상태
+    h1, h2 = st.columns([4, 1])
+    with h1:
         st.markdown(f"### {cur_rnd}회차 — {info.get('출연단체', '미정')}")
-    with c2:
-        st.markdown(f"**{info.get('공연일', '')}** · {info.get('장르', '')} · {info.get('공연시간', '')}")
-    with c3:
-        st.markdown(f"날씨: **{info.get('날씨', '')}** · 담당: **{info.get('담당자', '')}**")
-    with c4:
+    with h2:
         color = "#4CAF50" if status == "완료" else "#FFC107" if status == "진행중" else "#9E9E9E"
-        st.markdown(f"<span style='color:{color}; font-weight:bold; font-size:1.2rem;'>"
-                    f"● {status} ({rate}%)</span>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:right; padding-top:8px;'>"
+                    f"<span style='color:{color}; font-weight:bold; font-size:1.2rem;'>"
+                    f"● {status} ({rate}%)</span></div>", unsafe_allow_html=True)
+
+    # 2행: 공연 정보 (한 줄)
+    info_parts = []
+    for label, key in [("공연일", "공연일"), ("장르", "장르"), ("시간", "공연시간"),
+                        ("날씨", "날씨"), ("담당", "담당자")]:
+        val = info.get(key, "")
+        if val:
+            info_parts.append(f"**{label}** {val}")
+    if info_parts:
+        st.markdown(" &nbsp;·&nbsp; ".join(info_parts), unsafe_allow_html=True)
 
     st.progress(rate / 100)
 
