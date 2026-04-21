@@ -188,11 +188,29 @@ def render_tab_check():
     if "_copy_msg" in st.session_state:
         st.success(st.session_state.pop("_copy_msg"))
 
-    # ── 섹션별 이전 회차 복사 (폼 바깥) ──
+    # ── 예약된 복사 처리 (위젯 렌더링 전에 실행) ──
     grouped = {}
     for stage, code, name in mgr.items:
         grouped.setdefault(stage, []).append((code, name))
 
+    pending = st.session_state.pop("_pending_copy", None)
+    if pending:
+        mgr.last_save_error = None
+        p_stage = pending.get("stage")
+        if p_stage:
+            mgr.copy_prev_stage(cur_rnd, p_stage)
+        else:
+            mgr.copy_prev_checks(cur_rnd)
+        for s, code, _ in mgr.items:
+            if p_stage and s != p_stage:
+                continue
+            cd = mgr.get_check(cur_rnd, code)
+            st.session_state[f"st_{cur_rnd}_{code}"] = cd["상태"]
+            st.session_state[f"tm_{cur_rnd}_{code}"] = cd["완료시간"]
+            st.session_state[f"sf_{cur_rnd}_{code}"] = cd["담당"]
+            st.session_state[f"mm_{cur_rnd}_{code}"] = cd["메모"]
+
+    # ── 섹션별 이전 회차 복사 버튼 ──
     STAGE_SHORT = {"A": "사전 준비", "B": "현장 세팅", "C": "리허설",
                    "D": "공연 중", "E": "마무리"}
     st.caption(f"📋 이전 회차({cur_rnd - 1}회차)에서 섹션별 복사:")
@@ -202,13 +220,9 @@ def render_tab_check():
             short_name = STAGE_SHORT[stg]
             if st.button(f"📋 {short_name}", key=f"copy_stage_{stg}_{cur_rnd}",
                          use_container_width=True):
-                mgr.last_save_error = None
-                if mgr.copy_prev_stage(cur_rnd, stg):
-                    _sync_widgets_from_data(mgr, cur_rnd, stage=stg)
-                    st.session_state["_copy_msg"] = f"✅ {short_name} — {cur_rnd - 1}회차에서 복사 완료!"
-                    st.rerun()
-                else:
-                    st.warning(f"{cur_rnd - 1}회차에 {short_name} 데이터가 없습니다.")
+                st.session_state["_pending_copy"] = {"stage": stg}
+                st.session_state["_copy_msg"] = f"✅ {short_name} — {cur_rnd - 1}회차에서 복사 완료!"
+                st.rerun()
 
     # ── 체크리스트 폼 ──
     with st.form(f"check_form_{cur_rnd}", border=False):
@@ -313,13 +327,9 @@ def render_tab_check():
         st.rerun()
 
     if copy_prev:
-        mgr.last_save_error = None
-        if mgr.copy_prev_checks(cur_rnd):
-            _sync_widgets_from_data(mgr, cur_rnd)
-            st.session_state["_copy_msg"] = f"✅ {cur_rnd - 1}회차 전체 체크를 복사했습니다!"
-            st.rerun()
-        else:
-            st.warning(f"{cur_rnd - 1}회차 데이터가 없습니다.")
+        st.session_state["_pending_copy"] = {"stage": None}
+        st.session_state["_copy_msg"] = f"✅ {cur_rnd - 1}회차 전체 체크를 복사했습니다!"
+        st.rerun()
 
     if reset:
         mgr.reset_checks(cur_rnd)
