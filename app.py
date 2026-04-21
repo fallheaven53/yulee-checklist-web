@@ -193,16 +193,19 @@ def render_tab_check():
     for stage, code, name in mgr.items:
         grouped.setdefault(stage, []).append((code, name))
 
+    STAGE_SHORT = {"A": "사전 준비", "B": "현장 세팅", "C": "리허설",
+                   "D": "공연 중", "E": "마무리"}
     st.caption(f"📋 이전 회차({cur_rnd - 1}회차)에서 섹션별 복사:")
     copy_cols = st.columns(len(STAGE_LABELS))
     for i, (stg, stg_label) in enumerate(STAGE_LABELS.items()):
         with copy_cols[i]:
-            short_name = stg_label.split("—")[-1].strip() if "—" in stg_label else stg_label
+            short_name = STAGE_SHORT[stg]
             if st.button(f"📋 {short_name}", key=f"copy_stage_{stg}_{cur_rnd}",
                          use_container_width=True):
+                mgr.last_save_error = None
                 if mgr.copy_prev_stage(cur_rnd, stg):
                     _sync_widgets_from_data(mgr, cur_rnd, stage=stg)
-                    st.session_state["_copy_msg"] = f"✅ {stg_label} — {cur_rnd - 1}회차에서 복사 완료!"
+                    st.session_state["_copy_msg"] = f"✅ {short_name} — {cur_rnd - 1}회차에서 복사 완료!"
                     st.rerun()
                 else:
                     st.warning(f"{cur_rnd - 1}회차에 {short_name} 데이터가 없습니다.")
@@ -287,6 +290,7 @@ def render_tab_check():
 
     # ── 폼 제출 처리 ──
     if submitted:
+        mgr.last_save_error = None
         checks_data = {}
         for _, code, _ in mgr.items:
             s = st.session_state.get(f"st_{cur_rnd}_{code}", "미완료")
@@ -309,6 +313,7 @@ def render_tab_check():
         st.rerun()
 
     if copy_prev:
+        mgr.last_save_error = None
         if mgr.copy_prev_checks(cur_rnd):
             _sync_widgets_from_data(mgr, cur_rnd)
             st.session_state["_copy_msg"] = f"✅ {cur_rnd - 1}회차 전체 체크를 복사했습니다!"
