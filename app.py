@@ -66,8 +66,11 @@ def get_mgr():
     try:
         from gsheet_sync import GoogleSheetSync
         if "gcp_service_account" in st.secrets:
+            creds_dict = dict(st.secrets["gcp_service_account"])
+            print(f"[DEBUG] 서비스 계정: {creds_dict.get('client_email', '없음')}")
+            print(f"[DEBUG] 프로젝트: {creds_dict.get('project_id', '없음')}")
             gsheet = GoogleSheetSync(
-                credentials_dict=dict(st.secrets["gcp_service_account"]),
+                credentials_dict=creds_dict,
                 spreadsheet_id=st.secrets["spreadsheet"]["spreadsheet_id"],
             )
     except Exception as e:
@@ -78,6 +81,18 @@ def get_mgr():
 def reload_mgr():
     get_mgr.clear()
     st.rerun()
+
+
+def _sync_widgets_from_data(mgr, rnd, stage=None):
+    """복사 후 위젯 세션 스테이트를 데이터와 동기화"""
+    for s, code, _ in mgr.items:
+        if stage and s != stage:
+            continue
+        cd = mgr.get_check(rnd, code)
+        st.session_state[f"st_{rnd}_{code}"] = cd["상태"]
+        st.session_state[f"tm_{rnd}_{code}"] = cd["완료시간"]
+        st.session_state[f"sf_{rnd}_{code}"] = cd["담당"]
+        st.session_state[f"mm_{rnd}_{code}"] = cd["메모"]
 
 
 # ══════════════════════════════════════════════════════════════
@@ -167,28 +182,9 @@ def render_tab_check():
 
     st.progress(rate / 100)
 
-    # ── 섹션별 이전 회차 복사 (B·C·D·E만) ──
-    copy_stages = {"B": "현장 세팅", "C": "리허설",
-                   "D": "공연 중", "E": "공연 후"}
-    st.caption(f"📋 이전 회차({cur_rnd - 1}회차)에서 섹션별 복사:")
-    copy_cols = st.columns(len(copy_stages))
-    _copy_msg = None
-    for i, (stg, stg_name) in enumerate(copy_stages.items()):
-        with copy_cols[i]:
-            if st.button(f"📋 {stg_name}", key=f"copy_stage_{stg}_{cur_rnd}",
-                         use_container_width=True):
-                if mgr.copy_prev_stage(cur_rnd, stg):
-                    for key in list(st.session_state.keys()):
-                        if key.startswith(("st_", "tm_", "sf_", "mm_")) and f"_{cur_rnd}_" in key:
-                            code_part = key.split(f"_{cur_rnd}_")[-1]
-                            if any(code_part == c for s, c, _ in mgr.items if s == stg):
-                                del st.session_state[key]
-                    st.session_state["_copy_msg"] = f"✅ {stg_name} 섹션 — {cur_rnd - 1}회차에서 복사 완료!"
-                    st.rerun()
-                else:
-                    _copy_msg = ("warn", f"⚠ {cur_rnd - 1}회차에 {stg_name} 데이터가 없습니다.")
-    if _copy_msg:
-        st.warning(_copy_msg[1])
+    if mgr.last_save_error:
+        st.error(f"⚠ 구글 시트 저장 오류: {mgr.last_save_error}")
+
     if "_copy_msg" in st.session_state:
         st.success(st.session_state.pop("_copy_msg"))
 
@@ -198,6 +194,7 @@ def render_tab_check():
         for stage, code, name in mgr.items:
             grouped.setdefault(stage, []).append((code, name))
 
+        copy_stage_buttons = {}
         for stage in STAGE_LABELS:
             items_in_stage = grouped.get(stage, [])
             if not items_in_stage:
@@ -205,13 +202,19 @@ def render_tab_check():
 
             stage_rate = mgr.get_stage_rate(cur_rnd, stage)
             sc = STAGE_COLORS.get(stage, "#333")
-            scd = STAGE_COLORS_DARK.get(stage, "#666")
 
-            st.markdown(
-                f'<div class="stage-header" style="background:{sc}; color:#333;">'
-                f'{STAGE_LABELS[stage]} — {stage_rate}%</div>',
-                unsafe_allow_html=True
-            )
+            hdr_col, btn_col = st.columns([5, 1])
+            with hdr_col:
+                st.markdown(
+                    f'<div class="stage-header" style="background:{sc}; color:#333;">'
+                    f'{STAGE_LABELS[stage]} — {stage_rate}%</div>',
+                    unsafe_allow_html=True
+                )
+            with btn_col:
+                copy_stage_buttons[stage] = st.form_submit_button(
+                    f"📋 {cur_rnd - 1}회차 복사",
+                    key=f"copy_stage_{stage}_{cur_rnd}"
+                )
 
             for code, name in items_in_stage:
                 cd = mgr.get_check(cur_rnd, code)
@@ -229,9 +232,9 @@ def render_tab_check():
                     st.markdown(f"**{code}** {name}")
                 with cols[2]:
                     st.text_input(
-                        "완료시간", value=cd["완료시간"],
+                        "날짜/시간", value=cd["완료시간"],
                         key=f"tm_{cur_rnd}_{code}", label_visibility="collapsed",
-                        placeholder="HH:MM"
+                        placeholder="날짜/시간"
                     )
                 with cols[3]:
                     st.text_input(
@@ -284,7 +287,7 @@ def render_tab_check():
             sf = st.session_state.get(f"sf_{cur_rnd}_{code}", "")
             mm = st.session_state.get(f"mm_{cur_rnd}_{code}", "")
             if s == "완료" and not tm:
-                tm = datetime.now().strftime("%H:%M")
+                tm = datetime.now().strftime("%-m/%-d, %H:%M")
             checks_data[code] = {
                 "상태": s, "완료시간": tm, "담당": sf, "메모": mm
             }
@@ -300,13 +303,22 @@ def render_tab_check():
 
     if copy_prev:
         if mgr.copy_prev_checks(cur_rnd):
-            for key in list(st.session_state.keys()):
-                if key.startswith(("st_", "tm_", "sf_", "mm_")) and f"_{cur_rnd}_" in key:
-                    del st.session_state[key]
+            _sync_widgets_from_data(mgr, cur_rnd)
             st.session_state["_copy_msg"] = f"✅ {cur_rnd - 1}회차 전체 체크를 복사했습니다!"
             st.rerun()
         else:
             st.warning(f"{cur_rnd - 1}회차 데이터가 없습니다.")
+
+    for stg, clicked in copy_stage_buttons.items():
+        if clicked:
+            if mgr.copy_prev_stage(cur_rnd, stg):
+                _sync_widgets_from_data(mgr, cur_rnd, stage=stg)
+                stg_name = STAGE_LABELS.get(stg, stg)
+                st.session_state["_copy_msg"] = f"✅ {stg_name} — {cur_rnd - 1}회차에서 복사 완료!"
+                st.rerun()
+            else:
+                st.warning(f"{cur_rnd - 1}회차에 {STAGE_LABELS.get(stg, stg)} 데이터가 없습니다.")
+            break
 
     if reset:
         mgr.reset_checks(cur_rnd)

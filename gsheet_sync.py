@@ -44,8 +44,12 @@ class GoogleSheetSync:
         else:
             raise FileNotFoundError("구글 서비스 계정 인증 정보가 없습니다.")
 
+        self.service_email = credentials_dict.get("client_email", "") if credentials_dict else ""
+        print(f"[GSheet] 인증 이메일: {self.service_email}")
+        print(f"[GSheet] 스프레드시트 ID: {spreadsheet_id}")
         self.gc = gspread.authorize(creds)
         self.spreadsheet = self.gc.open_by_key(spreadsheet_id)
+        print(f"[GSheet] 스프레드시트 연결 성공: {self.spreadsheet.title}")
 
     # ═══════════════════════════════════════════
     #  시트 헬퍼
@@ -59,9 +63,17 @@ class GoogleSheetSync:
                 title=title, rows=rows, cols=cols)
 
     def _clear_and_write(self, ws, data):
-        ws.clear()
+        try:
+            ws.clear()
+        except Exception as e:
+            print(f"[GSheet] {ws.title} clear 실패: {e}")
+            raise
         if data:
-            ws.update(data, value_input_option="RAW")
+            try:
+                ws.update(data, value_input_option="RAW")
+            except Exception as e:
+                print(f"[GSheet] {ws.title} update 실패: {e}")
+                raise
 
     # ═══════════════════════════════════════════
     #  업로드 (ChecklistManager → 구글 시트)
@@ -71,13 +83,16 @@ class GoogleSheetSync:
         """ChecklistManager의 전체 데이터를 구글 시트에 업로드"""
 
         # 1) 체크리스트항목
+        print("[업로드] 1/4 체크리스트항목 시작...")
         ws_items = self._get_or_create_sheet("체크리스트항목")
         items_data = [["단계", "코드", "항목명"]]
         for stage, code, name in mgr.items:
             items_data.append([stage, code, name])
         self._clear_and_write(ws_items, items_data)
+        print("[업로드] 1/4 완료")
 
         # 2) 회차정보
+        print("[업로드] 2/4 회차정보 시작...")
         ws_info = self._get_or_create_sheet("회차정보")
         info_data = [["회차", "공연일", "출연단체", "장르", "공연시간", "날씨", "담당자"]]
         for rnd in sorted(mgr.round_info.keys()):
@@ -92,8 +107,10 @@ class GoogleSheetSync:
                 info.get("담당자", ""),
             ])
         self._clear_and_write(ws_info, info_data)
+        print("[업로드] 2/4 완료")
 
         # 3) 회차별체크
+        print("[업로드] 3/4 회차별체크 시작...")
         ws_checks = self._get_or_create_sheet("회차별체크")
         checks_data = [["회차", "코드", "상태", "완료시간", "담당", "메모"]]
         for rnd in sorted(mgr.checks.keys()):
@@ -106,8 +123,10 @@ class GoogleSheetSync:
                     cd.get("메모", ""),
                 ])
         self._clear_and_write(ws_checks, checks_data)
+        print("[업로드] 3/4 완료")
 
         # 4) 운영총평
+        print("[업로드] 4/4 운영총평 시작...")
         ws_reviews = self._get_or_create_sheet("운영총평")
         reviews_data = [["회차", "예상관객수", "공연평가", "총평", "개선사항"]]
         for rnd in sorted(mgr.reviews.keys()):
@@ -120,6 +139,7 @@ class GoogleSheetSync:
                 rv.get("개선사항", ""),
             ])
         self._clear_and_write(ws_reviews, reviews_data)
+        print("[업로드] 4/4 완료")
 
         # 기본 Sheet1 정리
         self._cleanup_default_sheets()

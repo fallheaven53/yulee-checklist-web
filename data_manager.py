@@ -63,6 +63,7 @@ class ChecklistManager:
         self.round_info = {}   # {회차(int): {공연일, 출연단체, 장르, ...}}
         self.checks = {}       # {회차(int): {코드: {상태, 완료시간, 담당, 메모}}}
         self.reviews = {}      # {회차(int): {예상관객수, 공연평가, 총평, 개선사항}}
+        self.last_save_error = None
         self.load()
 
     # ── 구글 시트에서 로드 ──
@@ -80,7 +81,9 @@ class ChecklistManager:
             return
         try:
             self.gsheet.upload_checklist(self)
+            self.last_save_error = None
         except Exception as e:
+            self.last_save_error = str(e)
             print(f"[구글시트 저장 실패] {e}")
 
     # ── 회차 관리 ──
@@ -106,7 +109,7 @@ class ChecklistManager:
     def set_check(self, rnd, code, status, staff="", memo=""):
         if rnd not in self.checks:
             self.checks[rnd] = {}
-        now = datetime.now().strftime("%H:%M") if status == "완료" else ""
+        now = datetime.now().strftime("%-m/%-d, %H:%M") if status == "완료" else ""
         self.checks[rnd][code] = {
             "상태": status,
             "완료시간": now,
@@ -134,9 +137,12 @@ class ChecklistManager:
         if rnd not in self.checks:
             self.checks[rnd] = {}
         for code, cd in self.checks[prev].items():
+            status = cd["상태"]
+            if status == "미완료" and (cd.get("담당") or cd.get("메모")):
+                status = "완료"
             self.checks[rnd][code] = {
-                "상태": cd["상태"],
-                "완료시간": "",
+                "상태": status,
+                "완료시간": cd["완료시간"],
                 "담당": cd["담당"],
                 "메모": cd["메모"],
             }
@@ -156,9 +162,12 @@ class ChecklistManager:
         copied = False
         for code, cd in self.checks[prev].items():
             if code in stage_codes:
+                status = cd["상태"]
+                if status == "미완료" and (cd.get("담당") or cd.get("메모")):
+                    status = "완료"
                 self.checks[rnd][code] = {
-                    "상태": cd["상태"],
-                    "완료시간": "",
+                    "상태": status,
+                    "완료시간": cd["완료시간"],
                     "담당": cd["담당"],
                     "메모": cd["메모"],
                 }
