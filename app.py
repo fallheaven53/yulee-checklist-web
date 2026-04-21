@@ -168,9 +168,11 @@ def render_tab_check():
     st.progress(rate / 100)
 
     # ── 섹션별 이전 회차 복사 (B·C·D·E만) ──
-    copy_stages = {"B": "공연 당일 — 현장 세팅", "C": "공연 당일 — 리허설",
-                   "D": "공연 중", "E": "공연 후 — 마무리"}
+    copy_stages = {"B": "현장 세팅", "C": "리허설",
+                   "D": "공연 중", "E": "공연 후"}
+    st.caption(f"📋 이전 회차({cur_rnd - 1}회차)에서 섹션별 복사:")
     copy_cols = st.columns(len(copy_stages))
+    _copy_msg = None
     for i, (stg, stg_name) in enumerate(copy_stages.items()):
         with copy_cols[i]:
             if st.button(f"📋 {stg_name}", key=f"copy_stage_{stg}_{cur_rnd}",
@@ -181,10 +183,14 @@ def render_tab_check():
                             code_part = key.split(f"_{cur_rnd}_")[-1]
                             if any(code_part == c for s, c, _ in mgr.items if s == stg):
                                 del st.session_state[key]
-                    st.success(f"{stg_name} 섹션 복사 완료!")
+                    st.session_state["_copy_msg"] = f"✅ {stg_name} 섹션 — {cur_rnd - 1}회차에서 복사 완료!"
                     st.rerun()
                 else:
-                    st.warning("이전 회차 데이터가 없습니다.")
+                    _copy_msg = ("warn", f"⚠ {cur_rnd - 1}회차에 {stg_name} 데이터가 없습니다.")
+    if _copy_msg:
+        st.warning(_copy_msg[1])
+    if "_copy_msg" in st.session_state:
+        st.success(st.session_state.pop("_copy_msg"))
 
     # ── 체크리스트 폼 ──
     with st.form(f"check_form_{cur_rnd}", border=False):
@@ -297,10 +303,10 @@ def render_tab_check():
             for key in list(st.session_state.keys()):
                 if key.startswith(("st_", "tm_", "sf_", "mm_")) and f"_{cur_rnd}_" in key:
                     del st.session_state[key]
-            st.success("이전 회차 체크를 복사했습니다.")
+            st.session_state["_copy_msg"] = f"✅ {cur_rnd - 1}회차 전체 체크를 복사했습니다!"
             st.rerun()
         else:
-            st.warning("이전 회차 데이터가 없습니다.")
+            st.warning(f"{cur_rnd - 1}회차 데이터가 없습니다.")
 
     if reset:
         mgr.reset_checks(cur_rnd)
