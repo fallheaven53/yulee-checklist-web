@@ -167,6 +167,25 @@ def render_tab_check():
 
     st.progress(rate / 100)
 
+    # ── 섹션별 이전 회차 복사 (B·C·D·E만) ──
+    copy_stages = {"B": "공연 당일 — 현장 세팅", "C": "공연 당일 — 리허설",
+                   "D": "공연 중", "E": "공연 후 — 마무리"}
+    copy_cols = st.columns(len(copy_stages))
+    for i, (stg, stg_name) in enumerate(copy_stages.items()):
+        with copy_cols[i]:
+            if st.button(f"📋 {stg_name}", key=f"copy_stage_{stg}_{cur_rnd}",
+                         use_container_width=True):
+                if mgr.copy_prev_stage(cur_rnd, stg):
+                    for key in list(st.session_state.keys()):
+                        if key.startswith(("st_", "tm_", "sf_", "mm_")) and f"_{cur_rnd}_" in key:
+                            code_part = key.split(f"_{cur_rnd}_")[-1]
+                            if any(code_part == c for s, c, _ in mgr.items if s == stg):
+                                del st.session_state[key]
+                    st.success(f"{stg_name} 섹션 복사 완료!")
+                    st.rerun()
+                else:
+                    st.warning("이전 회차 데이터가 없습니다.")
+
     # ── 체크리스트 폼 ──
     with st.form(f"check_form_{cur_rnd}", border=False):
         grouped = {}
@@ -227,7 +246,7 @@ def render_tab_check():
         rv = mgr.reviews.get(cur_rnd, {})
         rc1, rc2 = st.columns(2)
         with rc1:
-            st.text_input("예상관객수", value=rv.get("예상관객수", ""),
+            st.text_input("관객수", value=rv.get("예상관객수", ""),
                           key=f"rv_aud_{cur_rnd}", placeholder="숫자")
             st.selectbox("공연평가", [""] + EVAL_LIST,
                          index=(EVAL_LIST.index(rv["공연평가"]) + 1
@@ -275,6 +294,9 @@ def render_tab_check():
 
     if copy_prev:
         if mgr.copy_prev_checks(cur_rnd):
+            for key in list(st.session_state.keys()):
+                if key.startswith(("st_", "tm_", "sf_", "mm_")) and f"_{cur_rnd}_" in key:
+                    del st.session_state[key]
             st.success("이전 회차 체크를 복사했습니다.")
             st.rerun()
         else:

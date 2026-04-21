@@ -9,11 +9,13 @@ from datetime import datetime
 # ── 기본 체크리스트 항목 ──
 DEFAULT_ITEMS = [
     ("A", "A-01", "출연단체 출연 확인 연락 완료"),
-    ("A", "A-02", "출연단체 셋리스트 변경사항 확인"),
-    ("A", "A-03", "사회자(MC) 대본 작성·전달"),
-    ("A", "A-04", "홍보물(SNS·현수막 등) 게시 완료"),
-    ("A", "A-05", "음향사 당일 세팅 사전 확인"),
-    ("A", "A-06", "SNS·홈페이지 공연 안내 게시 확인"),
+    ("A", "A-02", "출연단체 리마인드 1차 발송 확인 (D-5, 월 10:00)"),
+    ("A", "A-03", "출연단체 리마인드 2차 발송 확인 (D-1, 금 10:00)"),
+    ("A", "A-04", "출연단체 셋리스트 변경사항 확인"),
+    ("A", "A-05", "사회자(MC) 대본 작성·전달"),
+    ("A", "A-06", "홍보물(SNS·현수막 등) 게시 완료"),
+    ("A", "A-07", "음향사 당일 세팅 사전 확인"),
+    ("A", "A-08", "SNS·홈페이지 공연 안내 게시 확인"),
     ("B", "B-01", "서석당 무대 세팅 (현수막 게첨, 의자 배치)"),
     ("B", "B-02", "음향 장비 설치·테스트"),
     ("B", "B-03", "빔프로젝터·자막 송출 테스트"),
@@ -129,7 +131,8 @@ class ChecklistManager:
         prev = rnd - 1
         if prev not in self.checks:
             return False
-        self.checks[rnd] = {}
+        if rnd not in self.checks:
+            self.checks[rnd] = {}
         for code, cd in self.checks[prev].items():
             self.checks[rnd][code] = {
                 "상태": cd["상태"],
@@ -139,6 +142,30 @@ class ChecklistManager:
             }
         self.save()
         return True
+
+    def copy_prev_stage(self, rnd, stage):
+        """이전 회차의 특정 섹션만 현재 회차에 복사"""
+        prev = rnd - 1
+        if prev not in self.checks:
+            return False
+        stage_codes = {c for s, c, _ in self.items if s == stage}
+        if not stage_codes:
+            return False
+        if rnd not in self.checks:
+            self.checks[rnd] = {}
+        copied = False
+        for code, cd in self.checks[prev].items():
+            if code in stage_codes:
+                self.checks[rnd][code] = {
+                    "상태": cd["상태"],
+                    "완료시간": "",
+                    "담당": cd["담당"],
+                    "메모": cd["메모"],
+                }
+                copied = True
+        if copied:
+            self.save()
+        return copied
 
     def reset_checks(self, rnd):
         """현재 회차 체크 초기화"""
