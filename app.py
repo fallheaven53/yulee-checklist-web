@@ -188,13 +188,27 @@ def render_tab_check():
     if "_copy_msg" in st.session_state:
         st.success(st.session_state.pop("_copy_msg"))
 
+    # ── 섹션별 이전 회차 복사 (폼 바깥) ──
+    grouped = {}
+    for stage, code, name in mgr.items:
+        grouped.setdefault(stage, []).append((code, name))
+
+    st.caption(f"📋 이전 회차({cur_rnd - 1}회차)에서 섹션별 복사:")
+    copy_cols = st.columns(len(STAGE_LABELS))
+    for i, (stg, stg_label) in enumerate(STAGE_LABELS.items()):
+        with copy_cols[i]:
+            short_name = stg_label.split("—")[-1].strip() if "—" in stg_label else stg_label
+            if st.button(f"📋 {short_name}", key=f"copy_stage_{stg}_{cur_rnd}",
+                         use_container_width=True):
+                if mgr.copy_prev_stage(cur_rnd, stg):
+                    _sync_widgets_from_data(mgr, cur_rnd, stage=stg)
+                    st.session_state["_copy_msg"] = f"✅ {stg_label} — {cur_rnd - 1}회차에서 복사 완료!"
+                    st.rerun()
+                else:
+                    st.warning(f"{cur_rnd - 1}회차에 {short_name} 데이터가 없습니다.")
+
     # ── 체크리스트 폼 ──
     with st.form(f"check_form_{cur_rnd}", border=False):
-        grouped = {}
-        for stage, code, name in mgr.items:
-            grouped.setdefault(stage, []).append((code, name))
-
-        copy_stage_buttons = {}
         for stage in STAGE_LABELS:
             items_in_stage = grouped.get(stage, [])
             if not items_in_stage:
@@ -203,18 +217,11 @@ def render_tab_check():
             stage_rate = mgr.get_stage_rate(cur_rnd, stage)
             sc = STAGE_COLORS.get(stage, "#333")
 
-            hdr_col, btn_col = st.columns([5, 1])
-            with hdr_col:
-                st.markdown(
-                    f'<div class="stage-header" style="background:{sc}; color:#333;">'
-                    f'{STAGE_LABELS[stage]} — {stage_rate}%</div>',
-                    unsafe_allow_html=True
-                )
-            with btn_col:
-                copy_stage_buttons[stage] = st.form_submit_button(
-                    f"📋 {cur_rnd - 1}회차 복사",
-                    key=f"copy_stage_{stage}_{cur_rnd}"
-                )
+            st.markdown(
+                f'<div class="stage-header" style="background:{sc}; color:#333;">'
+                f'{STAGE_LABELS[stage]} — {stage_rate}%</div>',
+                unsafe_allow_html=True
+            )
 
             for code, name in items_in_stage:
                 cd = mgr.get_check(cur_rnd, code)
@@ -308,17 +315,6 @@ def render_tab_check():
             st.rerun()
         else:
             st.warning(f"{cur_rnd - 1}회차 데이터가 없습니다.")
-
-    for stg, clicked in copy_stage_buttons.items():
-        if clicked:
-            if mgr.copy_prev_stage(cur_rnd, stg):
-                _sync_widgets_from_data(mgr, cur_rnd, stage=stg)
-                stg_name = STAGE_LABELS.get(stg, stg)
-                st.session_state["_copy_msg"] = f"✅ {stg_name} — {cur_rnd - 1}회차에서 복사 완료!"
-                st.rerun()
-            else:
-                st.warning(f"{cur_rnd - 1}회차에 {STAGE_LABELS.get(stg, stg)} 데이터가 없습니다.")
-            break
 
     if reset:
         mgr.reset_checks(cur_rnd)
