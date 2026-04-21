@@ -4,6 +4,7 @@
 """
 
 import os
+import time
 
 try:
     import gspread
@@ -23,6 +24,8 @@ SCOPES = [
 # - "회차정보":       회차 | 공연일 | 출연단체 | 장르 | 공연시간 | 날씨 | 담당자
 # - "회차별체크":     회차 | 코드 | 상태 | 완료시간 | 담당 | 메모
 # - "운영총평":       회차 | 예상관객수 | 공연평가 | 총평 | 개선사항
+
+MAX_RETRIES = 3
 
 
 class GoogleSheetSync:
@@ -62,18 +65,32 @@ class GoogleSheetSync:
             return self.spreadsheet.add_worksheet(
                 title=title, rows=rows, cols=cols)
 
-    def _clear_and_write(self, ws, data):
-        try:
-            ws.clear()
-        except Exception as e:
-            print(f"[GSheet] {ws.title} clear 실패: {e}")
-            raise
-        if data:
+    def _overwrite_sheet(self, ws, data):
+        """clear() 없이 update()로 직접 덮어쓰기 (403 우회)"""
+        if not data:
+            return
+        num_rows = len(data)
+        num_cols = max(len(row) for row in data)
+        end_col = chr(ord('A') + num_cols - 1)
+        range_str = f"A1:{end_col}{num_rows}"
+
+        for attempt in range(1, MAX_RETRIES + 1):
             try:
-                ws.update(data, value_input_option="RAW")
+                ws.update(range_notation=range_str, values=data,
+                          value_input_option="RAW")
+                cur_rows = ws.row_count
+                if cur_rows > num_rows:
+                    try:
+                        ws.delete_rows(num_rows + 1, cur_rows)
+                    except Exception:
+                        pass
+                return
             except Exception as e:
-                print(f"[GSheet] {ws.title} update 실패: {e}")
-                raise
+                print(f"[GSheet] {ws.title} 쓰기 실패 ({attempt}/{MAX_RETRIES}): {e}")
+                if attempt < MAX_RETRIES:
+                    time.sleep(1)
+                else:
+                    raise
 
     # ═══════════════════════════════════════════
     #  업로드 (ChecklistManager → 구글 시트)
@@ -83,16 +100,15 @@ class GoogleSheetSync:
         """ChecklistManager의 전체 데이터를 구글 시트에 업로드"""
 
         # 1) 체크리스트항목
-        print("[업로드] 1/4 체크리스트항목 시작...")
+        print("[업로드] 1/4 체크리스트항목...")
         ws_items = self._get_or_create_sheet("체크리스트항목")
         items_data = [["단계", "코드", "항목명"]]
         for stage, code, name in mgr.items:
             items_data.append([stage, code, name])
-        self._clear_and_write(ws_items, items_data)
-        print("[업로드] 1/4 완료")
+        self._overwrite_sheet(ws_items, items_data)
 
         # 2) 회차정보
-        print("[업로드] 2/4 회차정보 시작...")
+        print("[업로드] 2/4 회차정보...")
         ws_info = self._get_or_create_sheet("회차정보")
         info_data = [["회차", "공연일", "출연단체", "장르", "공연시간", "날씨", "담당자"]]
         for rnd in sorted(mgr.round_info.keys()):
@@ -106,11 +122,10 @@ class GoogleSheetSync:
                 info.get("날씨", ""),
                 info.get("담당자", ""),
             ])
-        self._clear_and_write(ws_info, info_data)
-        print("[업로드] 2/4 완료")
+        self._overwrite_sheet(ws_info, info_data)
 
         # 3) 회차별체크
-        print("[업로드] 3/4 회차별체크 시작...")
+        print("[업로드] 3/4 회차별체크...")
         ws_checks = self._get_or_create_sheet("회차별체크")
         checks_data = [["회차", "코드", "상태", "완료시간", "담당", "메모"]]
         for rnd in sorted(mgr.checks.keys()):
@@ -122,11 +137,10 @@ class GoogleSheetSync:
                     cd.get("담당", ""),
                     cd.get("메모", ""),
                 ])
-        self._clear_and_write(ws_checks, checks_data)
-        print("[업로드] 3/4 완료")
+        self._overwrite_sheet(ws_checks, checks_data)
 
         # 4) 운영총평
-        print("[업로드] 4/4 운영총평 시작...")
+        print("[업로드] 4/4 운영총평...")
         ws_reviews = self._get_or_create_sheet("운영총평")
         reviews_data = [["회차", "예상관객수", "공연평가", "총평", "개선사항"]]
         for rnd in sorted(mgr.reviews.keys()):
@@ -138,11 +152,9 @@ class GoogleSheetSync:
                 rv.get("총평", ""),
                 rv.get("개선사항", ""),
             ])
-        self._clear_and_write(ws_reviews, reviews_data)
-        print("[업로드] 4/4 완료")
+        self._overwrite_sheet(ws_reviews, reviews_data)
 
-        # 기본 Sheet1 정리
-        self._cleanup_default_sheets()
+        print("[업로드] 전체 완료")
 
     # ═══════════════════════════════════════════
     #  다운로드 (구글 시트 → ChecklistManager)
@@ -237,13 +249,7 @@ class GoogleSheetSync:
         except gspread.exceptions.WorksheetNotFound:
             pass
 
-    def _cleanup_default_sheets(self):
-        try:
-            sheets = self.spreadsheet.worksheets()
-            if len(sheets) > 1:
-                for s in sheets:
-                    if s.title in ("Sheet1", "시트1"):
-                        self.spreadsheet.del_worksheet(s)
-                        break
-        except Exception:
-            pass
+        # 진단: 로드된 데이터 요약
+        for rnd in sorted(mgr.checks.keys()):
+            codes = list(mgr.checks[rnd].keys())
+            print(f"[GSheet] {rnd}회차 체크 로드: {len(codes)}건 ({codes[:3]}...)")
