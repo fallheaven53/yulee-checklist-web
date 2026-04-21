@@ -98,6 +98,8 @@ class GoogleSheetSync:
 
     def upload_checklist(self, mgr):
         """ChecklistManager의 전체 데이터를 구글 시트에 업로드"""
+        total_checks = sum(len(v) for v in mgr.checks.values())
+        print(f"[업로드] 데이터: {len(mgr.round_info)}개 회차, {total_checks}건 체크")
 
         # 1) 체크리스트항목
         print("[업로드] 1/4 체크리스트항목...")

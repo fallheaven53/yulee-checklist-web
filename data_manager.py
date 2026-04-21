@@ -64,6 +64,7 @@ class ChecklistManager:
         self.checks = {}       # {회차(int): {코드: {상태, 완료시간, 담당, 메모}}}
         self.reviews = {}      # {회차(int): {예상관객수, 공연평가, 총평, 개선사항}}
         self.last_save_error = None
+        self._loaded_ok = False
         self.load()
 
     # ── 구글 시트에서 로드 ──
@@ -72,12 +73,21 @@ class ChecklistManager:
             return
         try:
             self.gsheet.download_checklist(self)
+            self._loaded_ok = True
         except Exception as e:
+            self._loaded_ok = False
             print(f"[구글시트 로드 실패] {e}")
 
     # ── 구글 시트에 저장 ──
     def save(self):
         if not self.gsheet:
+            return
+        if not self._loaded_ok:
+            print("[구글시트 저장 스킵] 로드 실패 상태에서 저장하면 데이터 유실 위험")
+            self.last_save_error = "초기 로드 실패 — 저장 차단 (데이터 보호)"
+            return
+        if not self.round_info and not self.checks:
+            print("[구글시트 저장 스킵] 빈 데이터 — 시트 덮어쓰기 방지")
             return
         try:
             self.gsheet.upload_checklist(self)
