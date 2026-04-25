@@ -10,7 +10,7 @@ import plotly.express as px
 from datetime import datetime
 
 from data_manager import (
-    ChecklistManager, DEFAULT_ITEMS,
+    ChecklistManager, DEFAULT_ITEMS, SEASON_ITEMS, CURRENT_SEASON,
     STAGE_LABELS, GENRE_LIST, WEATHER_LIST, EVAL_LIST,
 )
 
@@ -228,8 +228,53 @@ def render_tab_check():
 
     # ── 체크리스트 폼 ──
     with st.form(f"check_form_{cur_rnd}", border=False):
+        # 시즌 초 항목 (1회성)
+        season_items_in_form = [(c, n) for _, c, n in mgr.season_item_list]
+        if season_items_in_form:
+            st.markdown(
+                '<div class="stage-header" style="background:#FFF3E0; color:#333;">'
+                f'{CURRENT_SEASON} 시즌 초 준비 (1회성)</div>',
+                unsafe_allow_html=True
+            )
+            for code, name in season_items_in_form:
+                cd = mgr.season_checks.get(code, {
+                    "상태": "미완료", "완료시간": "", "담당": "", "메모": ""
+                })
+                cols = st.columns([0.8, 3, 1, 1, 2])
+                status_options = ["미완료", "완료", "해당없음"]
+                cur_status = cd["상태"] if cd["상태"] in status_options else "미완료"
+                cur_idx = status_options.index(cur_status)
+                with cols[0]:
+                    st.selectbox(
+                        "상태", status_options, index=cur_idx,
+                        key=f"ss_{cur_rnd}_{code}", label_visibility="collapsed"
+                    )
+                with cols[1]:
+                    st.markdown(f"**{code}** {name}")
+                with cols[2]:
+                    st.text_input(
+                        "날짜/시간", value=cd["완료시간"],
+                        key=f"stm_{cur_rnd}_{code}", label_visibility="collapsed",
+                        placeholder="날짜/시간"
+                    )
+                with cols[3]:
+                    st.text_input(
+                        "담당", value=cd["담당"],
+                        key=f"ssf_{cur_rnd}_{code}", label_visibility="collapsed",
+                        placeholder="담당자"
+                    )
+                with cols[4]:
+                    st.text_input(
+                        "메모", value=cd["메모"],
+                        key=f"smm_{cur_rnd}_{code}", label_visibility="collapsed",
+                        placeholder="메모"
+                    )
+            st.markdown("---")
+
+        # 회차별 항목
         for stage in STAGE_LABELS:
             items_in_stage = grouped.get(stage, [])
+            items_in_stage = [(c, n) for c, n in items_in_stage if c not in SEASON_ITEMS]
             if not items_in_stage:
                 continue
 
@@ -308,23 +353,35 @@ def render_tab_check():
     if submitted:
         mgr.last_save_error = None
         checks_data = {}
+        season_data = {}
         for _, code, _ in mgr.items:
-            s = st.session_state.get(f"st_{cur_rnd}_{code}", "미완료")
-            tm = st.session_state.get(f"tm_{cur_rnd}_{code}", "")
-            sf = st.session_state.get(f"sf_{cur_rnd}_{code}", "")
-            mm = st.session_state.get(f"mm_{cur_rnd}_{code}", "")
-            if s == "완료" and not tm:
-                tm = datetime.now().strftime("%-m/%-d, %H:%M")
-            checks_data[code] = {
-                "상태": s, "완료시간": tm, "담당": sf, "메모": mm
-            }
+            if code in SEASON_ITEMS:
+                s = st.session_state.get(f"ss_{cur_rnd}_{code}", "미완료")
+                tm = st.session_state.get(f"stm_{cur_rnd}_{code}", "")
+                sf = st.session_state.get(f"ssf_{cur_rnd}_{code}", "")
+                mm = st.session_state.get(f"smm_{cur_rnd}_{code}", "")
+                if s == "완료" and not tm:
+                    tm = datetime.now().strftime("%-m/%-d, %H:%M")
+                season_data[code] = {
+                    "상태": s, "완료시간": tm, "담당": sf, "메모": mm
+                }
+            else:
+                s = st.session_state.get(f"st_{cur_rnd}_{code}", "미완료")
+                tm = st.session_state.get(f"tm_{cur_rnd}_{code}", "")
+                sf = st.session_state.get(f"sf_{cur_rnd}_{code}", "")
+                mm = st.session_state.get(f"mm_{cur_rnd}_{code}", "")
+                if s == "완료" and not tm:
+                    tm = datetime.now().strftime("%-m/%-d, %H:%M")
+                checks_data[code] = {
+                    "상태": s, "완료시간": tm, "담당": sf, "메모": mm
+                }
         review_data = {
             "예상관객수": st.session_state.get(f"rv_aud_{cur_rnd}", ""),
             "공연평가": st.session_state.get(f"rv_eval_{cur_rnd}", ""),
             "총평": st.session_state.get(f"rv_review_{cur_rnd}", ""),
             "개선사항": st.session_state.get(f"rv_improve_{cur_rnd}", ""),
         }
-        mgr.save_checks(cur_rnd, checks_data, review_data)
+        mgr.save_checks(cur_rnd, checks_data, review_data, season_data)
         st.success("저장 완료!")
         st.rerun()
 

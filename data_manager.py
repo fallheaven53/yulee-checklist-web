@@ -14,6 +14,8 @@ DEFAULT_ITEMS = [
     ("A", "A-04", "홍보물(SNS·현수막 등) 게시 완료"),
     ("A", "A-05", "음향사 당일 세팅 사전 확인"),
     ("A", "A-06", "SNS·홈페이지 공연 안내 게시 확인"),
+    ("A", "A-07", "이해관계자 대상 ESG 교육(공지) 확인"),
+    ("A", "A-08", "인권보호·성희롱·성폭력 방지 서약서 징구 확인"),
 
     ("B", "B-01", "서석당 무대 세팅 (현수막 게첨, 의자 배치)"),
     ("B", "B-02", "음향 장비 설치·테스트 및 밸런스 최종 확인"),
@@ -31,6 +33,7 @@ DEFAULT_ITEMS = [
     ("D", "D-03", "관객 안전 관리 이상 없음"),
     ("D", "D-04", "만족도조사 QR코드 안내 실시"),
     ("D", "D-05", "취약계층 관람 편의 확인"),
+    ("D", "D-06", "저작권 침해 방지 확인 (사진·영상 기록 전 참여자 동의)"),
 
     ("E", "E-01", "무대·객석 철거 완료"),
     ("E", "E-02", "음향 장비 상태 점검 완료"),
@@ -55,6 +58,9 @@ DEFAULT_ITEMS = [
     ("S", "S-10", "1일 전 리마인드 자동 발송"),
 ]
 
+SEASON_ITEMS = {"A-07", "A-08"}
+CURRENT_SEASON = "2026시즌"
+
 STAGE_LABELS = {
     "A": "A. 공연 전 — 사전 준비",
     "B": "B. 공연 당일 — 현장 세팅",
@@ -78,9 +84,18 @@ class ChecklistManager:
         self.round_info = {}   # {회차(int): {공연일, 출연단체, 장르, ...}}
         self.checks = {}       # {회차(int): {코드: {상태, 완료시간, 담당, 메모}}}
         self.reviews = {}      # {회차(int): {예상관객수, 공연평가, 총평, 개선사항}}
+        self.season_checks = {}  # {코드: {상태, 완료시간, 담당, 메모}} — 시즌 초 1회성
         self.last_save_error = None
         self._loaded_ok = False
         self.load()
+
+    @property
+    def round_items(self):
+        return [(s, c, n) for s, c, n in self.items if c not in SEASON_ITEMS]
+
+    @property
+    def season_item_list(self):
+        return [(s, c, n) for s, c, n in self.items if c in SEASON_ITEMS]
 
     # ── 구글 시트에서 로드 ──
     def load(self):
@@ -101,7 +116,7 @@ class ChecklistManager:
             print("[구글시트 저장 스킵] 로드 실패 상태에서 저장하면 데이터 유실 위험")
             self.last_save_error = "초기 로드 실패 — 저장 차단 (데이터 보호)"
             return
-        if not self.round_info and not self.checks:
+        if not self.round_info and not self.checks and not self.season_checks:
             print("[구글시트 저장 스킵] 빈 데이터 — 시트 덮어쓰기 방지")
             return
         try:
@@ -147,11 +162,13 @@ class ChecklistManager:
             "상태": "미완료", "완료시간": "", "담당": "", "메모": ""
         })
 
-    def save_checks(self, rnd, checks_data, review_data=None):
+    def save_checks(self, rnd, checks_data, review_data=None, season_data=None):
         """회차 전체 체크 데이터 저장"""
         self.checks[rnd] = checks_data
         if review_data is not None:
             self.reviews[rnd] = review_data
+        if season_data is not None:
+            self.season_checks = season_data
         self.save()
 
     def copy_prev_checks(self, rnd):
@@ -210,17 +227,18 @@ class ChecklistManager:
     def get_round_rate(self, rnd):
         if rnd not in self.checks:
             return 0.0
-        total = len(self.items)
+        items = self.round_items
+        total = len(items)
         if total == 0:
             return 0.0
         done = sum(
-            1 for _, code, _ in self.items
+            1 for _, code, _ in items
             if self.checks[rnd].get(code, {}).get("상태") in ("완료", "해당없음")
         )
         return round(done / total * 100, 1)
 
     def get_stage_rate(self, rnd, stage):
-        stage_items = [(c, n) for s, c, n in self.items if s == stage]
+        stage_items = [(c, n) for s, c, n in self.round_items if s == stage]
         if not stage_items:
             return 0.0
         done = sum(
@@ -232,8 +250,10 @@ class ChecklistManager:
     def get_round_status(self, rnd):
         if rnd not in self.checks or not self.checks[rnd]:
             return "미착수"
-        statuses = [cd.get("상태", "미완료") for cd in self.checks[rnd].values()]
-        if all(s in ("완료", "해당없음") for s in statuses) and len(statuses) == len(self.items):
+        round_codes = {c for _, c, _ in self.round_items}
+        statuses = [cd.get("상태", "미완료")
+                     for code, cd in self.checks[rnd].items() if code in round_codes]
+        if all(s in ("완료", "해당없음") for s in statuses) and len(statuses) == len(round_codes):
             return "완료"
         return "진행중"
 
@@ -253,6 +273,16 @@ class ChecklistManager:
                     stats[code]["해당없음수"] += 1
                 else:
                     stats[code]["미완료수"] += 1
+        for code, cd in self.season_checks.items():
+            if code not in stats:
+                continue
+            s = cd.get("상태", "미완료")
+            if s == "완료":
+                stats[code]["완료수"] = 1
+            elif s == "해당없음":
+                stats[code]["해당없음수"] = 1
+            else:
+                stats[code]["미완료수"] = 1
         return stats, total_rounds
 
     # ── 항목 관리 ──

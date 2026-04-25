@@ -126,7 +126,7 @@ class GoogleSheetSync:
             ])
         self._overwrite_sheet(ws_info, info_data)
 
-        # 3) 회차별체크
+        # 3) 회차별체크 (회차별 + 시즌 초)
         print("[업로드] 3/4 회차별체크...")
         ws_checks = self._get_or_create_sheet("회차별체크")
         checks_data = [["회차", "코드", "상태", "완료시간", "담당", "메모"]]
@@ -139,6 +139,15 @@ class GoogleSheetSync:
                     cd.get("담당", ""),
                     cd.get("메모", ""),
                 ])
+        from data_manager import CURRENT_SEASON
+        for code, cd in mgr.season_checks.items():
+            checks_data.append([
+                CURRENT_SEASON, code,
+                cd.get("상태", "미완료"),
+                cd.get("완료시간", ""),
+                cd.get("담당", ""),
+                cd.get("메모", ""),
+            ])
         self._overwrite_sheet(ws_checks, checks_data)
 
         # 4) 운영총평
@@ -192,29 +201,32 @@ class GoogleSheetSync:
         except gspread.exceptions.WorksheetNotFound:
             pass
 
-        # 3) 회차별체크
+        # 3) 회차별체크 — "2026시즌" 등 문자열 회차는 시즌 초 항목으로 분류
         try:
             ws = self.spreadsheet.worksheet("회차별체크")
             rows = ws.get_all_values()
             mgr.checks = {}
+            mgr.season_checks = {}
             for row in rows[1:]:
                 if not row or not row[0].strip():
                     continue
-                try:
-                    rnd = int(row[0])
-                except ValueError:
-                    continue
+                rnd_str = row[0].strip()
                 code = row[1].strip() if len(row) > 1 else ""
                 if not code:
                     continue
-                if rnd not in mgr.checks:
-                    mgr.checks[rnd] = {}
-                mgr.checks[rnd][code] = {
+                check_data = {
                     "상태":     row[2].strip() if len(row) > 2 else "미완료",
                     "완료시간": row[3].strip() if len(row) > 3 else "",
                     "담당":     row[4].strip() if len(row) > 4 else "",
                     "메모":     row[5].strip() if len(row) > 5 else "",
                 }
+                try:
+                    rnd = int(rnd_str)
+                    if rnd not in mgr.checks:
+                        mgr.checks[rnd] = {}
+                    mgr.checks[rnd][code] = check_data
+                except ValueError:
+                    mgr.season_checks[code] = check_data
         except gspread.exceptions.WorksheetNotFound:
             pass
 
