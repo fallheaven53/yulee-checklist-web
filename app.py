@@ -28,6 +28,7 @@ STAGE_COLORS = {
     "C": "#FFF9C4",
     "D": "#FCE4EC",
     "E": "#F3E5F5",
+    "S": "#E0F7FA",
 }
 STAGE_COLORS_DARK = {
     "A": "#4CAF50",
@@ -35,6 +36,7 @@ STAGE_COLORS_DARK = {
     "C": "#FFC107",
     "D": "#E91E63",
     "E": "#9C27B0",
+    "S": "#00ACC1",
 }
 
 st.markdown("""
@@ -212,7 +214,7 @@ def render_tab_check():
 
     # ── 섹션별 이전 회차 복사 버튼 ──
     STAGE_SHORT = {"A": "사전 준비", "B": "현장 세팅", "C": "리허설",
-                   "D": "공연 중", "E": "마무리"}
+                   "D": "공연 중", "E": "마무리", "S": "SMS 모니터링"}
     st.caption(f"📋 이전 회차({cur_rnd - 1}회차)에서 섹션별 복사:")
     copy_cols = st.columns(len(STAGE_LABELS))
     for i, (stg, stg_label) in enumerate(STAGE_LABELS.items()):
