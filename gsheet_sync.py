@@ -165,21 +165,9 @@ class GoogleSheetSync:
     def download_checklist(self, mgr):
         """구글 시트에서 전체 데이터를 ChecklistManager로 로드"""
 
-        # 1) 체크리스트항목
-        try:
-            ws = self.spreadsheet.worksheet("체크리스트항목")
-            rows = ws.get_all_values()
-            if len(rows) > 1:
-                mgr.items = []
-                for row in rows[1:]:
-                    if len(row) >= 3 and row[0].strip():
-                        mgr.items.append((
-                            row[0].strip(),
-                            row[1].strip(),
-                            row[2].strip(),
-                        ))
-        except gspread.exceptions.WorksheetNotFound:
-            pass
+        # 1) 체크리스트항목 — 항상 코드(DEFAULT_ITEMS) 기준 사용
+        from data_manager import DEFAULT_ITEMS
+        mgr.items = list(DEFAULT_ITEMS)
 
         # 2) 회차정보
         try:
