@@ -76,8 +76,7 @@ class GoogleSheetSync:
 
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                ws.update(range_notation=range_str, values=data,
-                          value_input_option="RAW")
+                ws.update(range_str, data, value_input_option="RAW")
                 cur_rows = ws.row_count
                 if cur_rows > num_rows:
                     try:
