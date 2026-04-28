@@ -11,7 +11,7 @@ from datetime import datetime
 
 from data_manager import (
     ChecklistManager, DEFAULT_ITEMS, SEASON_ITEMS, CURRENT_SEASON,
-    STAGE_LABELS, GENRE_LIST, WEATHER_LIST, EVAL_LIST,
+    STAGE_LABELS, GENRE_LIST, WEATHER_LIST, EVAL_LIST, ESG_META,
 )
 
 # ── 페이지 설정 ──
@@ -29,6 +29,7 @@ STAGE_COLORS = {
     "D": "#FCE4EC",
     "E": "#F3E5F5",
     "S": "#E0F7FA",
+    "F": "#DCEDC8",
 }
 STAGE_COLORS_DARK = {
     "A": "#4CAF50",
@@ -37,6 +38,7 @@ STAGE_COLORS_DARK = {
     "D": "#E91E63",
     "E": "#9C27B0",
     "S": "#00ACC1",
+    "F": "#689F38",
 }
 
 st.markdown("""
@@ -214,7 +216,8 @@ def render_tab_check():
 
     # ── 섹션별 이전 회차 복사 버튼 ──
     STAGE_SHORT = {"A": "사전 준비", "B": "현장 세팅", "C": "리허설",
-                   "D": "공연 중", "E": "마무리", "S": "SMS 모니터링"}
+                   "D": "공연 중", "E": "마무리", "S": "SMS 모니터링",
+                   "F": "ESG 점검"}
     st.caption(f"📋 이전 회차({cur_rnd - 1}회차)에서 섹션별 복사:")
     copy_cols = st.columns(len(STAGE_LABELS))
     for i, (stg, stg_label) in enumerate(STAGE_LABELS.items()):
@@ -300,7 +303,18 @@ def render_tab_check():
                         key=f"st_{cur_rnd}_{code}", label_visibility="collapsed"
                     )
                 with cols[1]:
-                    st.markdown(f"**{code}** {name}")
+                    if code in ESG_META:
+                        meta = ESG_META[code]
+                        tag = meta["구분"]
+                        tc = {"필수": "#E53935", "도전": "#1565C0", "자체": "#2E7D32"}.get(tag, "#666")
+                        st.markdown(
+                            f'**{code}** '
+                            f'<span style="background:{tc};color:white;padding:1px 6px;'
+                            f'border-radius:3px;font-size:0.75rem;">{tag}</span> {name}',
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        st.markdown(f"**{code}** {name}")
                 with cols[2]:
                     st.text_input(
                         "날짜/시간", value=cd["완료시간"],

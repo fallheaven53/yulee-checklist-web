@@ -20,7 +20,7 @@ SCOPES = [
 ]
 
 # 구글 시트 구조 (4개 시트)
-# - "체크리스트항목": 단계 | 코드 | 항목명
+# - "체크리스트항목": 단계 | 코드 | 항목명 | ESG분야 | ESG과제 | 과제구분 | 참고자료
 # - "회차정보":       회차 | 공연일 | 출연단체 | 장르 | 공연시간 | 날씨 | 담당자
 # - "회차별체크":     회차 | 코드 | 상태 | 완료시간 | 담당 | 메모
 # - "운영총평":       회차 | 예상관객수 | 공연평가 | 총평 | 개선사항
@@ -102,10 +102,18 @@ class GoogleSheetSync:
 
         # 1) 체크리스트항목
         print("[업로드] 1/4 체크리스트항목...")
+        from data_manager import ESG_META
         ws_items = self._get_or_create_sheet("체크리스트항목")
-        items_data = [["단계", "코드", "항목명"]]
+        items_data = [["단계", "코드", "항목명", "ESG분야", "ESG과제", "과제구분", "참고자료"]]
         for stage, code, name in mgr.items:
-            items_data.append([stage, code, name])
+            meta = ESG_META.get(code, {})
+            items_data.append([
+                stage, code, name,
+                meta.get("분야", ""),
+                meta.get("과제", ""),
+                meta.get("구분", ""),
+                meta.get("참고", ""),
+            ])
         self._overwrite_sheet(ws_items, items_data)
 
         # 2) 회차정보
